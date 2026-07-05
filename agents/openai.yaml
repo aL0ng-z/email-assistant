@@ -1,0 +1,6 @@
+interface:
+  display_name: "Email Assistant"
+  short_description: "Query, summarize, and manage IMAP/SMTP mail."
+  default_prompt: "Use $email-assistant to summarize unread messages and draft replies."
+policy:
+  allow_implicit_invocation: true
