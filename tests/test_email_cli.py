@@ -119,6 +119,52 @@ class EmailCliTests(unittest.TestCase):
         self.assertIn('"version" "1.0"', payload)
         self.assertIn('"vendor" "email-assistant"', payload)
 
+    def test_quote_mailbox_encodes_ampersand_for_imap(self):
+        self.assertEqual(email_cli.quote_mailbox("A&B"), '"A&-B"')
+
+    def test_quote_mailbox_encodes_non_ascii_as_modified_utf7(self):
+        self.assertEqual(email_cli.quote_mailbox("\u6536\u4ef6\u7bb1"), '"&ZTZO9nux-"')
+
+    def test_list_folders_decodes_modified_utf7_names(self):
+        class DummyClient:
+            def list(self):
+                return "OK", [b'(\\HasNoChildren) "/" "~peter/mail/&U,BTFw-/&ZeVnLIqe-"']
+
+            def logout(self):
+                pass
+
+        config = email_cli.MailConfig(
+            env_path=None,
+            env_exists=False,
+            imap_host="",
+            imap_port=993,
+            imap_ssl=True,
+            imap_send_id=True,
+            imap_id_name="",
+            imap_id_version="",
+            imap_id_vendor="",
+            smtp_host="",
+            smtp_port=465,
+            smtp_ssl=True,
+            smtp_starttls=False,
+            username="",
+            auth_code="",
+            from_addr="",
+            default_folder="INBOX",
+            sent_folder="",
+            drafts_folder="",
+            trash_folder="",
+            timeout_seconds=30,
+        )
+        original_connect_imap = email_cli.connect_imap
+        try:
+            email_cli.connect_imap = lambda _config: DummyClient()
+            folders = email_cli.list_folders(config)["folders"]
+        finally:
+            email_cli.connect_imap = original_connect_imap
+
+        self.assertEqual(folders[0]["name"], "~peter/mail/\u53f0\u5317/\u65e5\u672c\u8a9e")
+
     def test_build_search_criteria(self):
         args = argparse.Namespace(
             unseen=True,

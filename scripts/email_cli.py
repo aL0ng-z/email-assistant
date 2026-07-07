@@ -548,10 +548,68 @@ def message_to_json(message: Message, uid: str | None = None, max_chars: int | N
     return data
 
 
+def encode_modified_utf7(value: str) -> str:
+    encoded_parts: list[str] = []
+    pending: list[str] = []
+
+    def flush_pending() -> None:
+        if not pending:
+            return
+        raw = "".join(pending).encode("utf-16-be")
+        token = base64.b64encode(raw).decode("ascii").rstrip("=").replace("/", ",")
+        encoded_parts.append(f"&{token}-")
+        pending.clear()
+
+    for char in value:
+        codepoint = ord(char)
+        if 0x20 <= codepoint <= 0x7E and char != "&":
+            flush_pending()
+            encoded_parts.append(char)
+        elif char == "&":
+            flush_pending()
+            encoded_parts.append("&-")
+        else:
+            pending.append(char)
+
+    flush_pending()
+    return "".join(encoded_parts)
+
+
+def decode_modified_utf7(value: str) -> str:
+    decoded_parts: list[str] = []
+    index = 0
+
+    while index < len(value):
+        char = value[index]
+        if char != "&":
+            decoded_parts.append(char)
+            index += 1
+            continue
+
+        end = value.find("-", index + 1)
+        if end == -1:
+            decoded_parts.append(value[index:])
+            break
+
+        token = value[index + 1 : end]
+        if token == "":
+            decoded_parts.append("&")
+        else:
+            try:
+                base64_token = token.replace(",", "/")
+                padded = base64_token + "=" * (-len(base64_token) % 4)
+                decoded_parts.append(base64.b64decode(padded).decode("utf-16-be"))
+            except Exception:
+                decoded_parts.append(value[index : end + 1])
+        index = end + 1
+
+    return "".join(decoded_parts)
+
+
 def quote_mailbox(folder: str) -> str:
     if folder.upper() == "INBOX":
         return "INBOX"
-    escaped = folder.replace("\\", "\\\\").replace('"', '\\"')
+    escaped = encode_modified_utf7(folder).replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
 
 
@@ -737,6 +795,8 @@ def list_folders(config: MailConfig) -> dict[str, Any]:
                 name = match.group("name").strip()
                 if name.startswith('"') and name.endswith('"'):
                     name = name[1:-1]
+                    name = name.replace(r"\\", "\\").replace(r"\"", '"')
+                name = decode_modified_utf7(name)
                 folders.append(
                     {
                         "name": name,
